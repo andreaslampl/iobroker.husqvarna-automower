@@ -936,6 +936,8 @@ class HusqvarnaAutomower extends utils.Adapter {
 							},
 							native: {},
 						});
+						// one channel per zone: name + enable (writable, PATCH stayOutZones/<id>)
+						await this.createStayOutZones(mowerData.data[i].id, mowerData.data[i].attributes.stayOutZones);
 					}
 
 					// create channel "workAreas" if supported
@@ -1440,7 +1442,29 @@ class HusqvarnaAutomower extends utils.Adapter {
 						native: {},
 					});
 
+					// create state "ACTIONS.CONFIRMERROR" if supported
+					if (mowerData.data[i].attributes.capabilities.canConfirmError) {
+						await this.setObjectNotExistsAsync(`${mowerData.data[i].id}.ACTIONS.CONFIRMERROR`, {
+							type: 'state',
+							common: {
+								name: 'Confirm the current error (only if mower.isErrorConfirmable is true)',
+								type: 'boolean',
+								def: false,
+								role: 'button',
+								read: true,
+								write: true,
+							},
+							native: {},
+						});
+					}
+
 					// subscribeStates
+					if (mowerData.data[i].attributes.capabilities.canConfirmError) {
+						this.subscribeStates(`${mowerData.data[i].id}.ACTIONS.CONFIRMERROR`);
+					}
+					if (mowerData.data[i].attributes.capabilities.stayOutZones) {
+						this.subscribeStates(`${mowerData.data[i].id}.stayOutZones.*.enable`);
+					}
 					this.subscribeStates(`${mowerData.data[i].id}.ACTIONS.PAUSE`);
 					this.subscribeStates(`${mowerData.data[i].id}.ACTIONS.PARKUNTILNEXTSCHEDULE`);
 					this.subscribeStates(`${mowerData.data[i].id}.ACTIONS.PARKUNTILFURTHERNOTICE`);
@@ -1681,9 +1705,13 @@ class HusqvarnaAutomower extends utils.Adapter {
 					val: mowerData.data[i].attributes.statistics.totalSearchingTime,
 					ack: true,
 				});
+				if (mowerData.data[i].attributes.capabilities.stayOutZones && mowerData.data[i].attributes.stayOutZones) {
+					await this.createStayOutZones(mowerData.data[i].id, mowerData.data[i].attributes.stayOutZones);
+					this.updateStayOutZones(mowerData.data[i].id, mowerData.data[i].attributes.stayOutZones);
+				}
 				if (mowerData.data[i].attributes.capabilities.stayOutZones) {
 					if (mowerData.data[i].attributes.stayOutZones) {
-						if (mowerData.data[i].attributes.stayOutZones.dirty) {
+						if (typeof mowerData.data[i].attributes.stayOutZones.dirty === 'boolean') {
 							this.setState(`${mowerData.data[i].id}.stayOutZones.dirty`, {
 								val: mowerData.data[i].attributes.stayOutZones.dirty,
 								ack: true,
@@ -2246,6 +2274,51 @@ class HusqvarnaAutomower extends utils.Adapter {
 	 * @param {string} id
 	 * @param {ioBroker.State | null | undefined} state
 	 */
+	/**
+	 * Stay-out zones: one channel per zone with `name` and `enable` (writable).
+	 *
+	 * @param {string} mowerId mower id
+	 * @param {any} soz attributes.stayOutZones {dirty, zones: [{id, name, enabled}]}
+	 */
+	async createStayOutZones(mowerId, soz) {
+		for (const z of soz && Array.isArray(soz.zones) ? soz.zones : []) {
+			const key = String(z.id).replace(this.FORBIDDEN_CHARS, '_');
+			await this.setObjectNotExistsAsync(`${mowerId}.stayOutZones.${key}`, {
+				type: 'channel',
+				common: { name: z.name || String(z.id) },
+				native: { zoneId: z.id },
+			});
+			await this.setObjectNotExistsAsync(`${mowerId}.stayOutZones.${key}.name`, {
+				type: 'state',
+				common: { name: 'Name of the stay-out zone', type: 'string', role: 'text', read: true, write: false },
+				native: { zoneId: z.id },
+			});
+			await this.setObjectNotExistsAsync(`${mowerId}.stayOutZones.${key}.enable`, {
+				type: 'state',
+				common: {
+					name: 'Stay-out zone active (write true / false; not possible while stayOutZones.dirty is true)',
+					type: 'boolean',
+					role: 'switch',
+					read: true,
+					write: true,
+				},
+				native: { zoneId: z.id },
+			});
+		}
+	}
+
+	/**
+	 * @param {string} mowerId mower id
+	 * @param {any} soz attributes.stayOutZones
+	 */
+	updateStayOutZones(mowerId, soz) {
+		for (const z of soz && Array.isArray(soz.zones) ? soz.zones : []) {
+			const key = String(z.id).replace(this.FORBIDDEN_CHARS, '_');
+			this.setState(`${mowerId}.stayOutZones.${key}.name`, { val: z.name || '', ack: true });
+			this.setState(`${mowerId}.stayOutZones.${key}.enable`, { val: Boolean(z.enabled), ack: true });
+		}
+	}
+
 	async onStateChange(id, state) {
 		if (state !== null && state !== undefined) {
 			if (state.ack === false) {
@@ -2268,11 +2341,28 @@ class HusqvarnaAutomower extends utils.Adapter {
 				this.log.debug(`[onStateChange]: command: ${command}`);
 				this.log.debug(`[onStateChange]: parentPath: ${parentPath}`);
 
-				const data_command = {};
+				let data_command = {};
 				let url = '';
+				let method = 'POST';
 				const data_tasks = [];
 
-				if (command === 'START') {
+				// stay-out zone on/off: <mower>.stayOutZones.<zone>.enable
+				if (idSplit.length === 6 && idSplit[3] === 'stayOutZones' && idSplit[5] === 'enable') {
+					command = 'STAYOUTZONE';
+					const obj = await this.getObjectAsync(id);
+					const zoneId = (obj && obj.native && obj.native.zoneId) || idSplit[4];
+					method = 'PATCH';
+					url = `stayOutZones/${zoneId}`;
+					data_command = { data: { type: 'stayOutZone', id: zoneId, attributes: { enable: Boolean(state.val) } } };
+				}
+
+				if (command === 'STAYOUTZONE') {
+					// built above
+				} else if (command === 'CONFIRMERROR') {
+					method = 'POST';
+					url = 'errors/confirm';
+					data_command = undefined;
+				} else if (command === 'START') {
 					const startTime = await this.getStateAsync(`${parentPath}.start.startTime`);
 					if (startTime && startTime.val) {
 						if (Number(startTime.val) >= 0 && Number(startTime.val) <= 1439) {
@@ -2288,12 +2378,12 @@ class HusqvarnaAutomower extends utils.Adapter {
 						return;
 					}
 				} else if (command === 'STARTINWORKAREA') {
-					const startTime = await this.getStateAsync(`${parentPath}.StartInWorkArea.startTime`);
-					const workAreaId = await this.getStateAsync(`${parentPath}.StartInWorkArea.workAreaId`);
-					if (startTime && startTime.val) {
+					const startTime = await this.getStateAsync(`${parentPath}.startInWorkArea.startTime`);
+					const workAreaId = await this.getStateAsync(`${parentPath}.startInWorkArea.workAreaId`);
+					if (startTime && startTime.val !== null && startTime.val !== undefined && startTime.val !== '') {
 						if (Number(startTime.val) >= 0 && Number(startTime.val) <= 1439) {
-							if (workAreaId && workAreaId.val) {
-								if (Number(workAreaId.val) > 0) {
+							if (workAreaId && workAreaId.val !== null && workAreaId.val !== undefined && workAreaId.val !== '') {
+								if (Number(workAreaId.val) >= 0) {
 									data_command.data = { type: 'StartInWorkArea' };
 									data_command.attributes = { duration: startTime.val, workAreaId: workAreaId.val };
 									url = 'actions';
@@ -2445,7 +2535,7 @@ class HusqvarnaAutomower extends utils.Adapter {
 				this.log.debug(`data: ${JSON.stringify(data_command)}`);
 
 				await axios({
-					method: 'POST',
+					method,
 					url: `https://api.amc.husqvarna.dev/v1/mowers/${mowerId}/${url}`,
 					headers: {
 						Authorization: `Bearer ${this.access_token}`,
@@ -2457,8 +2547,20 @@ class HusqvarnaAutomower extends utils.Adapter {
 				})
 					.then(response => {
 						this.log.debug(`[onStateChange]: HTTP status response: ${response.status} ${response.statusText}; config: ${JSON.stringify(response.config)}; headers: ${response.headers}; data: ${JSON.stringify(response.data)}`);
-						if (response.status === 202) {
+						if (response.status === 202 || response.status === 200 || response.status === 204) {
 							this.log.info(`${response.statusText}. Command ${command} Set.`);
+						}
+						if (command === 'STAYOUTZONE' || command === 'CONFIRMERROR') {
+							// the cloud does not push stay-out zones: read them again after a moment
+							this.setState(id, { val: state.val, ack: true });
+							this.refreshTimer = this.setTimeout(async () => {
+								try {
+									await this.getMowerData();
+									await this.fillObjects(this.mowerData);
+								} catch (error) {
+									this.log.debug(`${error} (refresh after ${command})`);
+								}
+							}, 5000);
 						}
 					})
 					.catch(async error => {

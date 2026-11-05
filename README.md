@@ -387,7 +387,13 @@ function round(digit, digits) {
 
 <!-- ### **WORK IN PROGRESS** -->
 
-### 0.6.0-beta.12 **WORK IN PROGRESS**
+### 0.6.0-beta.13 (fork andreaslampl)
+
+-   (andreaslampl) stay-out zones: `.stayOutZones.[zoneId].name` and `.stayOutZones.[zoneId].enable` (write true/false, not while `.stayOutZones.dirty` is true)
+-   (andreaslampl) `.ACTIONS.CONFIRMERROR`: confirm the current error (if `.capabilities.canConfirmError` and `.mower.isErrorConfirmable`)
+-   (andreaslampl) `.ACTIONS.startInWorkArea.STARTINWORKAREA` read its values from the wrong path; work area 0 and duration 0 are accepted
+
+### 0.6.0-beta.12
 
 -   (ice987987) BREAKING: admin >= v7.4.10 is required
 -   (ice987987) states `.capabilities.canConfirmError`, `mower.workAreaId`, `.workAreas.[workAreaId].enabled`, `.workAreas.[workAreaId].lastTimeCompleted`, `.workAreas.[workAreaId].progress`,`ACTIONS.REFRESHSTATISTICS` and `.ACTIONS.DATETIME` added

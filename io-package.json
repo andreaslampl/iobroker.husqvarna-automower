@@ -1,8 +1,12 @@
 {
     "common": {
         "name": "husqvarna-automower",
-        "version": "0.6.0-beta.12",
+        "version": "0.6.0-beta.13",
         "news": {
+            "0.6.0-beta.13": {
+                "en": "stay-out zones can be switched on/off (stayOutZones.<zone>.enable), ACTIONS.CONFIRMERROR confirms the current error, start in work area fixed (path, work area 0)",
+                "de": "Sperrzonen ein/aus (stayOutZones.<Zone>.enable), ACTIONS.CONFIRMERROR quittiert den aktuellen Fehler, Start im Arbeitsbereich repariert (Pfad, Bereich 0)"
+            },
             "0.3.0": {
                 "en": "improved logging\nupdate dependencies\nupdate of `common.states` of `.mower.errorCode`\nadding statistics values from the Automower Connect API `.statistics.cuttingBladeUsageTime`, `.statistics.numberOfChargingCycles`, `.statistics.numberOfCollisions`, `.statistics.totalChargingTime`, `.statistics.totalCuttingTime`, `.statistics.totalRunningTime` and `.statistics.totalSearchingTime`",
                 "de": "verbesserte protokollierung\naktualisierung der abhängigkeiten\naktualisierung von Common. Mower.errorCode\nhinzufügen von Statistikwerten aus der Automower Connect API Statistik.cuttingBladeUsageTime, statistics.numberOfChargingCycles, statistics.numberOfCollisions, statistics.totalChargingTime, statistics.totalCuttingTime, statistics.totalRunningTime und statistics.totalSearchingTime",
